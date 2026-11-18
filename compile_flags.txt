@@ -1,0 +1,7 @@
+-xc++
+-std=c++17
+-nostdinc
+-nostdinc++
+-fno-builtin
+-include
+/home/kikki/.config/glsl/glsl_compat.h
