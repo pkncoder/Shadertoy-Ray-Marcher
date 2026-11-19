@@ -23,12 +23,23 @@ This file contains information to store for this project, including:
 ## Development Phases
 ---
 
-- [ ] Phase 1
+- [ ] Phase 1 - Basic Workings & Definitions
 	- [ ] Common tab definitions
-	- [ ] Hello, Sphere ray marched output
+	- [ ] Hello, Sphere ray marched Output
 - [ ] Phase 2
+	- [ ] Ray Marched G-Buffer
+	- [ ] More sdfs & hard-coded map function
+	- [ ] Skybox
+	- [ ] Render Pass
 - [ ] Phase 3
+	- [ ] Cone Marching
+	- [ ] Scene definition though macros
+	- [ ] Basic operations
 - [ ] Phase 4
+	- [ ] Full operation list minus space-warping ones
+- [ ] Phase 5
+	- [ ] Full implementation of list including space - warping
+	- [ ] Analytical gradient curves
 
 ## Todos
 ---

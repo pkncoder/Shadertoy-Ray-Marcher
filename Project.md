@@ -79,7 +79,25 @@ This is a ray marcher made to run on shadertoy as an online demo.
 #### Common File
 
 - Settings
+	- Ray Marching Settings
+		- MAX_STEPS_CONE_MARCHING
+		- MAX_STEPS_RAY_MARCHING
+	- Camera Settings
+		- CAMERA_POSITION
+		- INITIAL_CAMERA_YAW
+		- INITIAL_CAMERA_PITCH
+		- INITIAL_CAMERA_ROLL
+		- FOV - float
+	- Render Settings
+		- ANTI_ALIASING - int - 0/1
+	- Post Processing Settings
+		- TONE_MAPPING - int 0/1
+		- SRGB - int 0/1
+		- EXPOSURE - float
+		- DENOISE - int 0/1
 - Definitions
+	- MIN_CAMERA_ANGLE - 0.1
+	- MAX_CAMERA_ANGLE - (PI - MIN_CAMERA_ANGLE)
 - Numbers
 	- PI - 3.1415927
 	- TWO_PI - 6.2831853
@@ -110,6 +128,9 @@ This is a ray marcher made to run on shadertoy as an online demo.
 - Global Values
 	- seed: uint
 	- scene: Scene
+	- cameraYaw: float
+	- cameraPitch: float
+	- cameraRoll: float
 - Helpers
 	- getCameraState(vec2 cameraOffset, out vec3 cameraPos, out vec3 cameraFwd, out vec3 cameraUp, out vec3 cameraRight)
 	- setSeed(vec2 fragCoord, uint inputSeed, sampler2D noise) 
@@ -147,9 +168,37 @@ This is a ray marcher made to run on shadertoy as an online demo.
 	- projectToScreen(vec3 worldPos, vec2 cameraOffset, vec2 resolution) -> ==vec2==
 		- Calls getCameraState
 		- Returns the screen position in a vec2
-- Intersection Functions
-- Entity Transformations / Distortions / Modifiers
+- Intersection Functions <!-- "function name" - "macro name" -->
+	- sphereSDF - SPHERE
+	- boxSDF - BOX
+	- roundedBoxSDF - ROUNDED_BOX
+	- coneSDF - CONE
+	- planeSDF - PLANE
+	- cylinderSDF - CYLINDER
+- Entity Transformations / Distortions / Modifiers <!-- "function name" - "macro name" -->
+	- Boolean Operations
+		- unionOperation - UNION
+		- subtractionOperation - SUBTRACT
+		- intersectionOperation - INTERSECT
+	- Smooth Boolean Operations
+		- smoothUnionOperation - sUNION
+		- smoothSubtractionOperation - sSUBTRACT
+		- smoothIntersectionOperation - sINTERSECT
+	- Modifiers
+		- rotationOperation - ROTATE
+		- scaleOperation - SCALE
+		- spinOperation - SPIN
+		- extrudeOperation - EXTRUDE
+		- elongateOperation - ELONGATE
+	- Distortions (Space)
+		- infiniteRepetitionOperation - iREPETITION
+		- boundedRepetitionOperation - bREPETITION
+		- symmetryOperation - SYMMETRY
+	- Distortions (Object)
+		- twistOperation
+		- bendOperation
 - Macros
+	- SCENE - Calls the map function (defined in macro) against the given sdf tree
 
 ### Methods
 
@@ -172,7 +221,7 @@ This is a ray marcher made to run on shadertoy as an online demo.
 
 ## Files
 
-- [[Todo|todo.md]] - Contains important todos, goals, and checklists for use during development
+- [[Todo|Todo.md]] - Contains important todos, goals, and checklists for use during development
 
 ## Resources
 
