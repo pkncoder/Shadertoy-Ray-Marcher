@@ -23,9 +23,9 @@ This file contains information to store for this project, including:
 ## Development Phases
 ---
 
-- [ ] Phase 1 - Basic Workings & Definitions
-	- [ ] Common tab definitions
-	- [ ] Hello, Sphere ray marched Output
+- [x] Phase 1 - Basic Workings & Definitions
+	- [x] Common tab definitions
+	- [x] Hello, Sphere ray marched Output
 - [ ] Phase 2
 	- [ ] Ray Marched G-Buffer
 	- [ ] More sdfs & hard-coded map function
@@ -50,6 +50,7 @@ This file contains information to store for this project, including:
 
 - [ ] Figure out how materials will work to distinguish them
 - [ ] Figure out how computing the BDRF will work
+- [ ] Figure out how to stop recreating HitInfos in sdfs
 
 ### Todo - Future Todos
 
@@ -57,6 +58,7 @@ This file contains information to store for this project, including:
 	- Get rid of \#includes
 	- Add headers for file metadata and sources
 	- Export into a folder & append the files
+    - Use a project file for how many passes, channel definitions, and extra naming stuff
 
 ### Todo - Editor
 
