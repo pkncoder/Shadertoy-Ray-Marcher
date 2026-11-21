@@ -1,6 +1,58 @@
 #include "common.glsl"
 
-void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
-    // Get the frag color
-    fragColor = vec4(texture(iChannel0, fragCoord / iResolution.xy).rgb, 0.0);
+// ----------------- SRGB -----------------
+
+// Returns 1.0 or 0.0 (bool) if it is less than the comparator
+vec3 LessThan(vec3 inputVector, float comparator) {
+    return vec3((inputVector.x < comparator) ? 1.0f : 0.0f,
+                (inputVector.y < comparator) ? 1.0f : 0.0f,
+                (inputVector.z < comparator) ? 1.0f : 0.0f);
+}
+
+// Changes the input vec3's rgb color space to srgb
+vec3 LinearToSRGB(vec3 rgb) {
+    rgb = clamp(rgb, 0.0f, 1.0f);
+    return mix(pow(rgb, vec3(1.0f / 2.4f)) * 1.055f - 0.055f, rgb * 12.92f,
+               LessThan(rgb, 0.0031308f));
+}
+
+// Canges the input vec3's srgb color space to rgb
+vec3 SRGBToLinear(vec3 srgb) {
+    srgb = clamp(srgb, 0.0f, 1.0f);
+    return mix(pow(((srgb + 0.055f) / 1.055f), vec3(2.4f)), srgb / 12.92f,
+               LessThan(srgb, 0.04045f));
+}
+
+/* ----------------- Tone Mapping ----------------- */
+
+// Tone maps the inputColor and returns the output
+vec3 ACESFilm(vec3 inputColor) {
+    float a = 2.51f;
+    float b = 0.03f;
+    float c = 2.43f;
+    float d = 0.59f;
+    float e = 0.14f;
+    return clamp((inputColor * (a * inputColor + b)) /
+                     (inputColor * (c * inputColor + d) + e),
+                 0.0f, 1.0f);
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    fragColor.a = 1.0; // Constant alpha color
+
+    // Get the final pass's color
+    fragColor.rgb = texture(iChannel0, fragCoord / iResolution.xy).rgb;
+
+    // Multiply by the exposure
+    fragColor.rgb *= EXPOSURE;
+
+// HDR -> SDR
+#if TONE_MAPPING == 1
+    fragColor.rgb = ACESFilm(fragColor.rgb);
+#endif
+
+// Linear -> SRGB
+#if SRGB == 1
+    fragColor.rgb = LinearToSRGB(fragColor.rgb);
+#endif
 }

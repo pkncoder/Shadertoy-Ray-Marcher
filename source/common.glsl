@@ -2,32 +2,62 @@
 precision highp float;
 #endif
 
-// Settings
+// ----------------- Settings -----------------
 
 // Ray Marching
-#define MAX_STEPS_RAY_MARCHING 64 
+#define MAX_STEPS_RAY_MARCHING 120
+
+// Render
+#define SKYBOX_COLOR_MULT 0.5
+
+#define MAX_BOUNCES 10
+#define SAMPLES 1
+
+#define ANTI_ALIASING 1
+
+#define ACCUM 1
 
 // Camera Settings
 #define CAMERA_CENTER vec3(0.0, 0.0, 5.0)
 #define CAMERA_Z_OFFSET 3.0
-#define INITIAL_CAMERA_YAW 0.
-#define INITIAL_CAMERA_PITCH 0.0
-#define INITIAL_CAMERA_ROLL 0.0
-#define MIN_CAMERA_ANGLE 0.1
-#define MAX_CAMERA_ANGLE (PI - MIN_CAMERA_ANGLE)
+
 #define FOV 60.0
 
+#define INITIAL_CAMERA_YAW 0.0
+#define INITIAL_CAMERA_PITCH 0.0
+#define INITIAL_CAMERA_ROLL 0.0
 
-// Numbers
+// Post Processing
+#define EXPOSURE 1.0
+#define TONE_MAPPING 1
+#define SRGB 0
+
+// ----------------- Definitions -----------------
+
+// ----------------- Numbers -----------------
+
+// PI
 #define PI 3.1415927
 #define TWO_PI 6.2831853
 #define INVERSE_PI 0.31830989
 #define INVERSE_TWO_PI 0.15915494
+
+// Eulers
 #define EULERS 2.7182818
+
+// Epsilons
 #define EPSILON 0.001
+#define NORMAL_NUDGE_EPSILON 0.01
+
+// Camera
+#define MIN_CAMERA_ANGLE 0.1
+#define MAX_CAMERA_ANGLE (PI - MIN_CAMERA_ANGLE)
+
+// Distance limiters
 #define FAR 50.0
 
-// Scruct definitions
+// ----------------- Structs -----------------
+
 struct Ray {
     vec3 origin;
     vec3 direction;
@@ -49,83 +79,247 @@ struct HitInfo {
 
     vec3 normal;
 
-    Material material;
+    int materialID;
 };
 
 struct SDFInfo {
     float dist;
-    Material material;
+    int materialID;
 };
 
+// ----------------- Global Values -----------------
 
-// Helper Functions
+// Global random seed
+uint seed;
 
-// Orbit camera mathDemofox Path Tracing 3 - "https://www.shadertoy.com/view/ttfyzN"
-void getCameraState(out vec3 cameraPos, out vec3 cameraFwd, out vec3 cameraUp, out vec3 cameraRight)
-{
+// ----------------- Helper Functions -----------------
+
+// Taken from Demofox Path Tracing 3 "https://www.shadertoy.com/view/ttfyzN"
+// Orbit camera math - slightly modified by me on camera center and displacement
+void getCameraState(out vec3 cameraPos, out vec3 cameraFwd, out vec3 cameraUp,
+                    out vec3 cameraRight) {
     // Get the camera vectors based on the mousepos
     vec2 mouse = iMouse.xy;
-    if (dot(mouse, vec2(1.0, 1.0)) == 0.0)
-    {
+
+    // If the mouse hasn't moved yet, start with the initial settings
+    if (dot(mouse, vec2(1.0, 1.0)) == 0.0) {
         cameraPos = CAMERA_CENTER + vec3(0.0, 0.0, -CAMERA_Z_OFFSET);
         cameraFwd = vec3(0.0, 0.0, 1.0);
         cameraUp = vec3(0.0, 1.0, 0.0);
         cameraRight = vec3(1.0, 0.0, 0.0);
         return;
     }
-    
-    // otherwise use the mouse position to calculate camera position and orientation
-    
+
+    // Calculate the angle x and y needed to move to from the mouse
     float angleX = -mouse.x * 16.0 / float(iResolution.x);
-    float angleY = mix(MIN_CAMERA_ANGLE, MAX_CAMERA_ANGLE, mouse.y / float(iResolution.y));
-    
+    float angleY =
+        mix(MIN_CAMERA_ANGLE, MAX_CAMERA_ANGLE, mouse.y / float(iResolution.y));
+
+    // Rotate the camra, centered on the origin, scaled by offset
     cameraPos.x = sin(angleX) * sin(angleY) * CAMERA_Z_OFFSET;
     cameraPos.y = -cos(angleY) * CAMERA_Z_OFFSET;
     cameraPos.z = cos(angleX) * sin(angleY) * CAMERA_Z_OFFSET;
-    
+
+    // Offset the camera pos to the center
     cameraPos += CAMERA_CENTER;
-    
+
+    // Calculate the camera vectors
     cameraFwd = normalize(CAMERA_CENTER - cameraPos);
     cameraRight = normalize(cross(vec3(0.0, 1.0, 0.0), cameraFwd));
-    cameraUp = normalize(cross(cameraFwd, cameraRight));   
+    cameraUp = normalize(cross(cameraFwd, cameraRight));
 }
 
-// Intersection Functions
-
-float sphereSDF(vec3 rayPosition, vec3 origin, float radius) {
-    return length(origin - rayPosition) - radius;
+// Backup seed for when the blue noise texture isn't loaded
+uint getBackupSeed(vec2 fragCoord, uint inputSeed) {
+    return uint(fragCoord.x) * 1973u + uint(fragCoord.y) * 9277u +
+               inputSeed * 26699u |
+           1u;
 }
 
+// Seed pulled from blue noise
+void setSeed(vec2 fragCoord, uint inputSeed, sampler2D noise) {
 
-// Boolean Operations
+    // Pick a spot on the blue noise function and sample it
+    vec2 noiseUV = fragCoord / 1024.0 +
+                   fract(float(inputSeed) * vec2(0.6180339887, 0.7548776662));
+    float blueNoise = texture(noise, noiseUV).r;
 
-// Pure
-float unionOperation(float objectA, float objectB) {
-     return min(objectA, objectB);
+    // Inject it into the seed
+    if (blueNoise > 0.0)
+        seed = uint(blueNoise * 4294967295.0) ^ (inputSeed * uint(26699));
+    else
+        seed = getBackupSeed(fragCoord, inputSeed);
 }
 
-float subtractOperation(float objectA, float objectB) {
-    return max(objectA, -objectB);
+// Hash function for random uint
+uint wang_hash() {
+    seed = uint(seed ^ uint(61)) ^ uint(seed >> uint(16));
+    seed *= uint(9);
+    seed = seed ^ (seed >> 4);
+    seed *= uint(0x27d4eb2d);
+    seed = seed ^ (seed >> 15);
+    return seed;
 }
 
-float intersectionOperation(float objectA, float objectB) {
-    return max(objectA, objectB);
+// Random float one from [0-1]
+float randomNormalizedFloatOne() { return float(wang_hash()) / float(-1u); }
+
+// Random normalized unit vector
+vec3 randomUnitVector() {
+    float z = randomNormalizedFloatOne() * 2.0f - 1.0f;
+    float a = randomNormalizedFloatOne() * 6.28318530718;
+    float r = sqrt(1.0f - z * z);
+    return vec3(r * cos(a), r * sin(a), z);
 }
 
-// Smooth
-float smoothUnionOperation(float objectA, float objectB, float smoothnessFactor)
-{
-  smoothnessFactor *= 4.0;
-  float h = max(smoothnessFactor - abs(objectA - objectB),0.0);
-  return min(objectA, objectB) - h*h*0.25/smoothnessFactor;
+// Halton 2, 3 series for anti-aliasing
+vec2 halton(int index) {
+    const vec2 coprimes = vec2(2.0f, 3.0f);
+    vec2 s = vec2(index, index);
+    vec4 a = vec4(1, 1, 0, 0);
+    while (s.x > 0. && s.y > 0.) {
+        a.xy = a.xy / coprimes;
+        a.zw += a.xy * mod(s, coprimes);
+        s = floor(s / coprimes);
+    }
+    return a.zw;
 }
 
-float smoothSubtractOperation(float objectA, float objectB, float smoothnessFactor)
-{
-  return -smoothUnionOperation(-objectA, objectB, smoothnessFactor);
+// Helper to avoid sin(0) returing 0
+vec2 signNotZero(vec2 v) {
+    return mix(vec2(-1.0), vec2(1.0), step(vec2(0.0), v));
 }
 
-float smoothIntersectOperation(float objectA, float objectB, float smoothnessFactor)
-{
-  return -smoothUnionOperation(-objectA, -objectB, smoothnessFactor);
+// Packs a 3D unit normal into a 2D vector in the range [-1, 1]
+vec2 packNormal(vec3 normal) {
+    vec2 p = normal.xy / (abs(normal.x) + abs(normal.y) + abs(normal.z));
+    return (normal.z <= 0.0) ? (1.0 - abs(p.yx)) * signNotZero(p) : p;
+}
+
+// Unpacks a 2D normal vector back into a 3D normal vector
+vec3 unpackNormal(vec2 packedNormal) {
+    vec3 n =
+        vec3(packedNormal.xy, 1.0 - abs(packedNormal.x) - abs(packedNormal.y));
+    if (n.z < 0.0) {
+        n.xy = (1.0 - abs(n.yx)) * signNotZero(n.xy);
+    }
+    return normalize(n);
+}
+
+// Fetch the material of an id from the materials list
+void fetchMaterial(out Material material, int materialID) {
+    Material materials[3];
+
+    materials[0] = Material(vec3(0.2, 0.7, 0.3), vec3(0.0), 1.0, 0.0);
+    materials[1] = Material(vec3(1.0), vec3(1.0), 1.0, 0.0);
+    materials[2] = Material(vec3(0.95), vec3(0.0), 1.0, 0.0);
+
+    material = materials[materialID];
+}
+
+// Helper function to unpack G-Buffer data and retrieve hit/material properties
+bool unpackGBuffer(const in Ray ray, out HitInfo hit, out Material material,
+                   in sampler2D gBufferChannel, vec2 fragCoord) {
+    // Get the g-buffer information
+    vec4 gBuffer = texelFetch(gBufferChannel, ivec2(fragCoord), 0);
+
+    // Get the hit information
+    float dist = gBuffer.z;
+    float encodedID = gBuffer.w;
+
+    // Check for a background/sky miss
+    if (dist >= FAR) {
+        return false;
+    }
+
+    // Set hit info
+    hit.hit = true;
+    hit.dist = dist;
+    hit.normal = unpackNormal(gBuffer.xy); // Unpack the normal
+    hit.hitPosition = ray.origin + ray.direction * hit.dist;
+
+    // Send out the material
+    fetchMaterial(material, int(gBuffer.w));
+
+    return true;
+}
+
+// ----------------- Intersection Functions -----------------
+
+SDFInfo sphereSDF(vec3 rayPosition, vec3 origin, float radius, int materialID) {
+    return SDFInfo(length(origin - rayPosition) - radius, materialID);
+}
+
+SDFInfo planeSDF(vec3 rayPosition, vec3 normal, float height, int materialID) {
+    return SDFInfo(dot(rayPosition, normal) + height, materialID);
+}
+
+// ----------------- Entity Operations & Modifiers -----------------
+
+// Pure Boolean operations
+SDFInfo unionOperation(SDFInfo objectA, SDFInfo objectB) {
+    bool pickA = objectA.dist < objectB.dist;
+
+    return SDFInfo(pickA ? objectA.dist : objectB.dist,
+                   pickA ? objectA.materialID : objectB.materialID);
+}
+
+SDFInfo subtractOperation(SDFInfo objectA, SDFInfo objectB) {
+    bool pickA = objectA.dist > -objectB.dist;
+
+    return SDFInfo(pickA ? objectA.dist : -objectB.dist,
+                   pickA ? objectA.materialID : objectB.materialID);
+}
+
+SDFInfo intersectOperation(SDFInfo objectA, SDFInfo objectB) {
+    bool pickA = objectA.dist > objectB.dist;
+
+    return SDFInfo(pickA ? objectA.dist : objectB.dist,
+                   pickA ? objectA.materialID : objectB.materialID);
+}
+
+// Smooth Boolean Operations
+SDFInfo smoothUnionOperation(SDFInfo objectA, SDFInfo objectB,
+                             float smoothnessFactor) {
+    bool pickA = objectA.dist < objectB.dist;
+
+    smoothnessFactor *= 4.0;
+    float h = max(smoothnessFactor - abs(objectA.dist - objectB.dist), 0.0);
+    return SDFInfo(min(objectA.dist, objectB.dist) -
+                       h * h * 0.25 / smoothnessFactor,
+                   pickA ? objectA.materialID : objectB.materialID);
+}
+
+SDFInfo smoothSubtractOperation(SDFInfo objectA, SDFInfo objectB,
+                                float smoothnessFactor) {
+    bool pickA = objectA.dist > -objectB.dist;
+
+    smoothnessFactor *= 4.0;
+    float h = max(smoothnessFactor - abs(objectA.dist + objectB.dist), 0.0);
+    return SDFInfo(max(objectA.dist, -objectB.dist) +
+                       h * h * 0.25 / smoothnessFactor,
+                   pickA ? objectA.materialID : objectB.materialID);
+}
+
+SDFInfo smoothIntersectOperation(SDFInfo objectA, SDFInfo objectB,
+                                 float smoothnessFactor) {
+    bool pickA = objectA.dist > objectB.dist;
+
+    smoothnessFactor *= 4.0;
+    float h = max(smoothnessFactor - abs(objectA.dist - objectB.dist), 0.0);
+    return SDFInfo(max(objectA.dist, objectB.dist) +
+                       h * h * 0.25 / smoothnessFactor,
+                   pickA ? objectA.materialID : objectB.materialID);
+}
+
+// ----------------- Macros -----------------
+
+// TODO: Temp; will be turned into a pure macro (and won't be individually
+// called)
+SDFInfo map(vec3 rayPosition) {
+    return unionOperation(
+        smoothSubtractOperation(
+            sphereSDF(rayPosition, vec3(0.0, 0.0, 5.0), 1.0, 0),
+            sphereSDF(rayPosition, vec3(0.9, -0.2, 4.5), 0.5, 1), 0.05),
+        planeSDF(rayPosition, vec3(0.0, 1.0, 0.0), 1.0, 2));
 }

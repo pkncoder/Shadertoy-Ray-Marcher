@@ -27,10 +27,10 @@ This file contains information to store for this project, including:
 	- [x] Common tab definitions
 	- [x] Hello, Sphere ray marched Output
 - [ ] Phase 2
-	- [ ] Ray Marched G-Buffer
+	- [x] Ray Marched G-Buffer
 	- [ ] More sdfs & hard-coded map function
-	- [ ] Skybox
-	- [ ] Render Pass
+	- [x] Skybox
+	- [x] Render Pass
 - [ ] Phase 3
 	- [ ] Cone Marching
 	- [ ] Scene definition though macros
@@ -75,16 +75,18 @@ This file contains information to store for this project, including:
 - Analytical Gradients for ray marching normals
 - Adding fBM support for texturing materials
 - Adding fBM support for bump mapping & normals
+- Skip sampling the scene when multiple samples when there is a no-hit for the first hit
 
 ## Checklists
 ---
 
 ### Refactor Checklist
 
-1. [ ] Fix warnings
-2. [ ] Fix placement of functions
-3. [ ] Refactor step by step in code
-4. [ ] Rename things
-5. [ ] Add comments
-6. [ ] Place the \#includes in the right spots
-7. [ ] Run `./convertToShadertoy`
+1. [ ] Fix placement of functions
+2. [ ] Rename things
+3. [ ] Change input params to have in & out
+4. [ ] Add const to input params
+5. [ ] Refactor step by step in code
+6. [ ] Add comments
+7. [ ] Place the \#includes in the right spots
+8. [ ] Run `./convertToShadertoy`

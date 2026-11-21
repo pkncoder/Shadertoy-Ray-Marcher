@@ -1,78 +1,104 @@
 #include "common.glsl"
 
-float map(vec3 rayPosition) {
-    return smoothUnionOperation(
-        sphereSDF(rayPosition, vec3(0.0, 0.0, 5.0), 1.0),
-        sphereSDF(rayPosition, vec3(0.5, 0.5, 4.5), 0.5),
-        max(abs(sin(iTime) / 15.0), EPSILON)
-    );
-}
+// Run the narrow ray marching (sphere tracing) algorithm
+// TODO: temp - eventually will be cone-marching
+HitInfo marchRay(const in Ray ray) {
 
-HitInfo marchRay(Ray ray) {
+    // Clone the immutable ray to be used mutabily
+    Ray cameraRay = ray;
 
+    // Setup the base hit information
     HitInfo hitInfo;
     hitInfo.hit = false;
-    
-    float distanceTravelled = 0.0;
-    
-    float mappedSceneSDF;
 
+    // Save the total distance travelled
+    float totalDistanceTravelled = 0.0;
+
+    // Repeat sdf return info from the mapping function
+    SDFInfo mappedSceneSDF;
+    mappedSceneSDF.dist = 0.0;
+
+    // Loop until broken or max steps have been reached
     for (int i = 0; i < MAX_STEPS_RAY_MARCHING; i++) {
-        
-        vec3 rayPosition = ray.origin + ray.direction * distanceTravelled;
-        
-        mappedSceneSDF = map(rayPosition);
-        
-        distanceTravelled += mappedSceneSDF;
-        
-        if (distanceTravelled > FAR) {
+
+        // Step forward the ray by the last itteration's travel distance
+        cameraRay.origin += cameraRay.direction * mappedSceneSDF.dist;
+
+        // Map the current scene from the new ray origin
+        mappedSceneSDF = map(cameraRay.origin);
+
+        // Update the total distance traveled
+        totalDistanceTravelled += mappedSceneSDF.dist;
+
+        // No hit condition
+        if (totalDistanceTravelled > FAR) {
             break;
         }
-        
-        if (mappedSceneSDF < EPSILON) {
+
+        // Hit condition
+        if (mappedSceneSDF.dist < EPSILON) {
             hitInfo.hit = true;
-            hitInfo.dist = distanceTravelled;
-            hitInfo.hitPosition = ray.origin + ray.direction * distanceTravelled;
-            hitInfo.material = Material(vec3(1.0), vec3(0.0), 1.0, 0.0);
+            hitInfo.dist = totalDistanceTravelled;
+            hitInfo.hitPosition = cameraRay.origin;
+            hitInfo.materialID = mappedSceneSDF.materialID;
             break;
         }
     }
-    
+
+    // Final hit info
     return hitInfo;
 }
 
-vec3 colorScene(const in Ray ray) {
+// Estimate the normal with a 4-tap - code taken from iq
+vec3 estimateNormal(const in Ray ray, const in HitInfo originalHit) {
+    vec3 rayPosition = ray.origin + ray.direction * originalHit.dist;
 
-    HitInfo hit = marchRay(ray);
-    vec3 rayPosition = ray.origin + ray.direction * hit.dist;
-    
-    vec2 e = vec2(1.0,-1.0)*0.5773*0.0005;
-    vec3 estimatedNormal =  normalize( e.xyy*map(rayPosition + e.xyy) + 
-					  e.yyx*map(rayPosition + e.yyx ) + 
-					  e.yxy*map(rayPosition + e.yxy ) + 
-					  e.xxx*map(rayPosition + e.xxx ));
-    
-    vec3 lightPosition = vec3(3.0, 3.0, 2.0);
-
-    return vec3(hit.hit ? vec3(max(dot(estimatedNormal, normalize(lightPosition - hit.hitPosition)), 0.1)) : vec3(0.0));
+    vec2 e = vec2(1.0, -1.0) * 0.5773 * 0.0005;
+    return normalize(e.xyy * map(rayPosition + e.xyy).dist +
+                     e.yyx * map(rayPosition + e.yyx).dist +
+                     e.yxy * map(rayPosition + e.yxy).dist +
+                     e.xxx * map(rayPosition + e.xxx).dist);
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
-    vec2 uv = ((fragCoord) / iResolution.xy * 2.0 - 1.0) * vec2(iResolution.x / iResolution.y, 1.0);
+    // Set the current seed number
+    setSeed(fragCoord, uint(iFrame), iChannel3);
+
+// Anti-aliasing
+#if (ANTI_ALIASING == 0)
+    vec2 jitter = vec2(0.0);
+#else
+    vec2 jitter = halton(iFrame % 16) - 0.5;
+#endif
+
+    // Calculate screen uv while taking account of aspect ratio
+    vec2 uv = ((fragCoord + jitter) / iResolution.xy * 2.0 - 1.0) *
+              vec2(iResolution.x / iResolution.y, 1.0);
+
+    // Calculate the camera distance from FOV
     float cameraDist = 1.0f / tan(FOV * 0.5f * PI / 180.0f);
 
-    // Get the initial ray
+    // Get the current camera state & vectors
     vec3 cameraPos, cameraFwd, cameraUp, cameraRight;
-    getCameraState(cameraPos, cameraFwd, cameraUp, cameraRight); 
-    
+    getCameraState(cameraPos, cameraFwd, cameraUp, cameraRight);
+
+    // Calculate ray direction from the camera vectors
     vec3 rayDirection = normalize(vec3(uv, cameraDist));
-    rayDirection = normalize(mat3(cameraRight, cameraUp, cameraFwd) * rayDirection);
-    Ray ray = Ray(
-        cameraPos,
-        rayDirection
-    );
+    rayDirection =
+        normalize(mat3(cameraRight, cameraUp, cameraFwd) * rayDirection);
 
-    fragColor = vec4(colorScene(ray), 1.0);
+    // Construct the final ray
+    Ray ray = Ray(cameraPos, rayDirection);
 
+    // Get the scene information for the g-buffer
+    HitInfo sceneInfo = marchRay(ray);
+
+    // Construct the g-buffer color
+    // R & G - Packed normal
+    // B - Distance
+    // A - Encoded id information
+    fragColor = sceneInfo.hit ? vec4(packNormal(estimateNormal(ray, sceneInfo)),
+                                     sceneInfo.dist, sceneInfo.materialID)
+                              : vec4(vec2(0.0), FAR, -1.0);
 }
