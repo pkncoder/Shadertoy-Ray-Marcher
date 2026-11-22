@@ -5,13 +5,13 @@ precision highp float;
 // ----------------- Settings -----------------
 
 // Ray Marching
-#define MAX_STEPS_RAY_MARCHING 120
+#define MAX_STEPS_RAY_MARCHING 180
 
 // Render
 #define SKYBOX_COLOR_MULT 0.5
 
 #define MAX_BOUNCES 10
-#define SAMPLES 1
+#define SAMPLES 4
 
 #define ANTI_ALIASING 1
 
@@ -19,7 +19,7 @@ precision highp float;
 
 // Camera Settings
 #define CAMERA_CENTER vec3(0.0, 0.0, 5.0)
-#define CAMERA_Z_OFFSET 3.0
+#define CAMERA_Z_OFFSET 5.0
 
 #define FOV 60.0
 
@@ -30,7 +30,7 @@ precision highp float;
 // Post Processing
 #define EXPOSURE 1.0
 #define TONE_MAPPING 1
-#define SRGB 0
+#define SRGB 1
 
 // ----------------- Definitions -----------------
 
@@ -246,12 +246,98 @@ bool unpackGBuffer(const in Ray ray, out HitInfo hit, out Material material,
 
 // ----------------- Intersection Functions -----------------
 
-SDFInfo sphereSDF(vec3 rayPosition, vec3 origin, float radius, int materialID) {
-    return SDFInfo(length(origin - rayPosition) - radius, materialID);
+SDFInfo sphereSDF(vec3 rayPosition, vec3 center, float radius, int materialID) {
+    float sdfDist = length(center - rayPosition) - radius;
+
+    return SDFInfo(sdfDist, materialID);
+}
+
+SDFInfo boxSDF(vec3 rayPosition, vec3 center, vec3 bounds, int materialID) {
+    vec3 q = abs(center - rayPosition) - bounds;
+    float sdfDist = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+
+    return SDFInfo(sdfDist, materialID);
+}
+
+SDFInfo roundedBoxSDF(vec3 rayPosition, vec3 center, vec3 bounds, float radius,
+                      int materialID) {
+    vec3 q = abs(center - rayPosition) - bounds + radius;
+    float sdfDist =
+        length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - radius;
+
+    return SDFInfo(sdfDist, materialID);
+}
+
+SDFInfo framedBoxSDF(vec3 rayPosition, vec3 center, vec3 bounds,
+                     float edgeWidth, int materialID) {
+
+    rayPosition = abs(center - rayPosition) - bounds;
+    vec3 q = abs(rayPosition + edgeWidth) - edgeWidth;
+
+    float sdfDist = min(min(length(max(vec3(rayPosition.x, q.y, q.z), 0.0)) +
+                                min(max(rayPosition.x, max(q.y, q.z)), 0.0),
+                            length(max(vec3(q.x, rayPosition.y, q.z), 0.0)) +
+                                min(max(q.x, max(rayPosition.y, q.z)), 0.0)),
+                        length(max(vec3(q.x, q.y, rayPosition.z), 0.0)) +
+                            min(max(q.x, max(q.y, rayPosition.z)), 0.0));
+
+    return SDFInfo(sdfDist, materialID);
+}
+
+SDFInfo torusSDF(vec3 rayPosition, vec3 center, float holeRadius,
+                 float bodyRadius, int materialID) {
+    rayPosition = center - rayPosition;
+
+    vec2 q = vec2(length(rayPosition.xz) - holeRadius, rayPosition.y);
+    float sdfDist = length(q) - bodyRadius;
+
+    return SDFInfo(sdfDist, materialID);
 }
 
 SDFInfo planeSDF(vec3 rayPosition, vec3 normal, float height, int materialID) {
-    return SDFInfo(dot(rayPosition, normal) + height, materialID);
+    float sdfDist = dot(rayPosition, normal) + height;
+
+    return SDFInfo(sdfDist, materialID);
+}
+
+SDFInfo cylinderSDF(vec3 rayPosition, vec3 endA, vec3 endBPosition,
+                    float radius, int materialID) {
+    vec3 ba = endBPosition - endA;
+    vec3 pa = rayPosition - endA;
+    float baba = dot(ba, ba);
+    float paba = dot(pa, ba);
+
+    float x = length(pa * baba - ba * paba) - radius * baba;
+    float y = abs(paba - baba * 0.5) - baba * 0.5;
+    float x2 = x * x;
+    float y2 = y * y * baba;
+    float d = (max(x, y) < 0.0)
+                  ? -min(x2, y2)
+                  : (((x > 0.0) ? x2 : 0.0) + ((y > 0.0) ? y2 : 0.0));
+
+    float sdfDist = sign(d) * sqrt(abs(d)) / baba;
+
+    return SDFInfo(sdfDist, materialID);
+}
+
+SDFInfo octahedronSDF(vec3 rayPosition, vec3 center, float radius,
+                      int materialID) {
+    rayPosition = abs(center - rayPosition);
+    float m = rayPosition.x + rayPosition.y + rayPosition.z - radius;
+    vec3 q;
+    if (3.0 * rayPosition.x < m)
+        q = rayPosition.xyz;
+    else if (3.0 * rayPosition.y < m)
+        q = rayPosition.yzx;
+    else if (3.0 * rayPosition.z < m)
+        q = rayPosition.zxy;
+    else
+        return SDFInfo(m * 0.57735027, materialID);
+
+    float k = clamp(0.5 * (q.z - q.y + radius), 0.0, radius);
+    float sdfDist = length(vec3(q.x, q.y - radius + k, q.z - k));
+
+    return SDFInfo(sdfDist, materialID);
 }
 
 // ----------------- Entity Operations & Modifiers -----------------
@@ -319,7 +405,9 @@ SDFInfo smoothIntersectOperation(SDFInfo objectA, SDFInfo objectB,
 SDFInfo map(vec3 rayPosition) {
     return unionOperation(
         smoothSubtractOperation(
-            sphereSDF(rayPosition, vec3(0.0, 0.0, 5.0), 1.0, 0),
+            roundedBoxSDF(rayPosition, vec3(0.0, 0.0, 5.0), vec3(1.0), 0.3, 0),
             sphereSDF(rayPosition, vec3(0.9, -0.2, 4.5), 0.5, 1), 0.05),
         planeSDF(rayPosition, vec3(0.0, 1.0, 0.0), 1.0, 2));
+
+    // return torusSDF(rayPosition, vec3(0.0, 0.0, 5.0), 2.0, 1.0, 0);
 }

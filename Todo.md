@@ -26,9 +26,9 @@ This file contains information to store for this project, including:
 - [x] Phase 1 - Basic Workings & Definitions
 	- [x] Common tab definitions
 	- [x] Hello, Sphere ray marched Output
-- [ ] Phase 2
+- [x] Phase 2
 	- [x] Ray Marched G-Buffer
-	- [ ] More sdfs & hard-coded map function
+	- [x] More sdfs & hard-coded map function
 	- [x] Skybox
 	- [x] Render Pass
 - [ ] Phase 3
