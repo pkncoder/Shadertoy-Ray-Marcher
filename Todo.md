@@ -47,6 +47,8 @@ This file contains information to store for this project, including:
 
 ### Todo - Code
 
+- [ ] Add back in initial yaw/pitch on camera default
+
 ### Todo - Not Code
 
 - [ ] Figure out how to stop recreating HitInfos in sdfs
@@ -81,6 +83,10 @@ This file contains information to store for this project, including:
 - Dither support
 - Resolution tricks (adaptive resolution / upscaling)
 - Cone trace secondary rays, and tighten cone when needed via roughness (ex. specular bulb)
+- For post, maybe do a screen space path trace just for the fog
+    - Not sure if that would work, I'll think on it later
+    - I may have to add it to processBounce()
+- See if I can pre-calculate the FOV during runtime
 
 ## Checklists
 ---

@@ -8,10 +8,10 @@ precision highp float;
 #define MAX_STEPS_RAY_MARCHING 240
 
 // Render
-#define SKYBOX_COLOR_MULT 0.5
+#define SKYBOX_COLOR_MULT vec3(0.5)
 
-#define MAX_BOUNCES 15
-#define SAMPLES 2
+#define MAX_BOUNCES 10
+#define SAMPLES 1
 
 #define MIN_BOUNCE_BEFORE_RUSSIAN_ROULETTE 3
 
@@ -30,9 +30,24 @@ precision highp float;
 #define INITIAL_CAMERA_ROLL 0.0
 
 // Post Processing
-#define EXPOSURE 1.0
+
+// Switches
+#define EXPOSURE 1
 #define TONE_MAPPING 1
 #define SRGB 1
+#define FOG 0
+#define VIGNETTE 0
+
+// Settings
+#define EXPOSURE_FACTOR 1.0
+
+#define FOG_COLOR vec3(0.6, 0.1, 0.2)
+#define FOG_DENSITY 0.6
+#define FOG_ALPHA 0.7
+
+#define VIGNETTE_COLOR vec3(0.0)
+#define VIGNETTE_RADIUS 1.8
+#define VIGNETTE_SOFTNESS 2.0
 
 // ----------------- Definitions -----------------
 
@@ -233,16 +248,16 @@ bool unpackGBuffer(const in Ray ray, out HitInfo hit, out Material material,
     float dist = gBuffer.z;
     float encodedID = gBuffer.w;
 
-    // Check for a background/sky miss
-    if (dist >= FAR) {
-        return false;
-    }
-
     // Set hit info
     hit.hit = true;
     hit.dist = dist;
     hit.normal = unpackNormal(gBuffer.xy); // Unpack the normal
     hit.hitPosition = ray.origin + ray.direction * hit.dist;
+
+    // Check for a background/sky miss
+    if (dist >= FAR) {
+        return false;
+    }
 
     // Send out the material
     fetchMaterial(material, int(gBuffer.w));
