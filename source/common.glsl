@@ -5,13 +5,15 @@ precision highp float;
 // ----------------- Settings -----------------
 
 // Ray Marching
-#define MAX_STEPS_RAY_MARCHING 180
+#define MAX_STEPS_RAY_MARCHING 240
 
 // Render
 #define SKYBOX_COLOR_MULT 0.5
 
-#define MAX_BOUNCES 10
-#define SAMPLES 4
+#define MAX_BOUNCES 15
+#define SAMPLES 2
+
+#define MIN_BOUNCE_BEFORE_RUSSIAN_ROULETTE 3
 
 #define ANTI_ALIASING 1
 
@@ -21,7 +23,7 @@ precision highp float;
 #define CAMERA_CENTER vec3(0.0, 0.0, 5.0)
 #define CAMERA_Z_OFFSET 5.0
 
-#define FOV 60.0
+#define FOV 65.0
 
 #define INITIAL_CAMERA_YAW 0.0
 #define INITIAL_CAMERA_PITCH 0.0
@@ -162,12 +164,12 @@ uint wang_hash() {
 }
 
 // Random float one from [0-1]
-float randomNormalizedFloatOne() { return float(wang_hash()) / float(-1u); }
+float randomNormalizedFloat() { return float(wang_hash()) / float(-1u); }
 
 // Random normalized unit vector
 vec3 randomUnitVector() {
-    float z = randomNormalizedFloatOne() * 2.0f - 1.0f;
-    float a = randomNormalizedFloatOne() * 6.28318530718;
+    float z = randomNormalizedFloat() * 2.0f - 1.0f;
+    float a = randomNormalizedFloat() * 6.28318530718;
     float r = sqrt(1.0f - z * z);
     return vec3(r * cos(a), r * sin(a), z);
 }
@@ -208,11 +210,15 @@ vec3 unpackNormal(vec2 packedNormal) {
 
 // Fetch the material of an id from the materials list
 void fetchMaterial(out Material material, int materialID) {
-    Material materials[3];
+    Material materials[7];
 
     materials[0] = Material(vec3(0.2, 0.7, 0.3), vec3(0.0), 1.0, 0.0);
-    materials[1] = Material(vec3(1.0), vec3(1.0), 1.0, 0.0);
-    materials[2] = Material(vec3(0.95), vec3(0.0), 1.0, 0.0);
+    materials[1] = Material(vec3(1.0), vec3(0.8), 1.0, 0.0);
+    materials[2] = Material(vec3(0.7, 0.8, 0.95), vec3(0.0), 1.0, 0.0);
+    materials[3] = Material(vec3(0.7, 0.5, 0.5), vec3(0.0), 1.0, 0.0);
+    materials[4] = Material(vec3(1.0), vec3(0.3, 0.2, 0.9), 1.0, 0.0);
+    materials[5] = Material(vec3(0.8, 0.6, 0.4), vec3(0.0), 1.0, 0.0);
+    materials[6] = Material(vec3(1.0), vec3(0.5, 0.1, 0.8), 1.0, 0.0);
 
     material = materials[materialID];
 }
@@ -400,14 +406,47 @@ SDFInfo smoothIntersectOperation(SDFInfo objectA, SDFInfo objectB,
 
 // ----------------- Macros -----------------
 
+// TODO: temp; Helper for creation matricie
+mat3 createRotationMatrix(vec3 rotationAngles) {
+    float x = rotationAngles.x;
+    float y = rotationAngles.y;
+    float z = rotationAngles.z;
+
+    return mat3(cos(y) * cos(z), -cos(y) * sin(z), sin(y),
+                (cos(x) * sin(z) + sin(x) * sin(y) * cos(z)),
+                (cos(x) * cos(z) - sin(x) * sin(y) * sin(z)), -sin(x) * cos(y),
+                (sin(x) * sin(z) - cos(x) * sin(y) * cos(z)),
+                (sin(x) * cos(z) + cos(x) * sin(y) * sin(z)), cos(x) * cos(y));
+}
+
 // TODO: Temp; will be turned into a pure macro (and won't be individually
 // called)
 SDFInfo map(vec3 rayPosition) {
     return unionOperation(
-        smoothSubtractOperation(
-            roundedBoxSDF(rayPosition, vec3(0.0, 0.0, 5.0), vec3(1.0), 0.3, 0),
-            sphereSDF(rayPosition, vec3(0.9, -0.2, 4.5), 0.5, 1), 0.05),
-        planeSDF(rayPosition, vec3(0.0, 1.0, 0.0), 1.0, 2));
-
-    // return torusSDF(rayPosition, vec3(0.0, 0.0, 5.0), 2.0, 1.0, 0);
+        unionOperation(
+            unionOperation(
+                subtractOperation(
+                    smoothSubtractOperation(
+                        smoothSubtractOperation(
+                            roundedBoxSDF(rayPosition, vec3(0.0, 0.0, 5.0),
+                                          vec3(1.0), 0.3, 0),
+                            sphereSDF(rayPosition, vec3(0.7, -0.2, 4.2), 0.45,
+                                      1),
+                            0.05),
+                        cylinderSDF(rayPosition, vec3(-0.15, -0.25, 4.03),
+                                    vec3(0.0, 0.0, 6.97), 0.35, 0),
+                        0.04),
+                    sphereSDF(rayPosition, vec3(0.2, 0.1, 5.0), 0.2, 6)),
+                planeSDF(rayPosition, vec3(0.0, 1.0, 0.0), 1.0, 2)),
+            torusSDF(createRotationMatrix(vec3(-0.6, -0.9, 0.2)) *
+                         (vec3(-0.6, 0.9, 4.1) - rayPosition),
+                     vec3(0.0), 0.7, 0.3, 3)),
+        smoothUnionOperation(
+            framedBoxSDF(createRotationMatrix(vec3(0.0, -0.5, 0.0)) *
+                             (vec3(-1.8, -0.4, 3.0) - rayPosition),
+                         vec3(0.0), vec3(0.6), 0.05, 5),
+            octahedronSDF(createRotationMatrix(vec3(0.0, -0.5, 0.0)) *
+                              (vec3(-1.8, -0.4, 3.0) - rayPosition),
+                          vec3(0.0), 0.8, 4),
+            0.1));
 }

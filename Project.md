@@ -4,7 +4,7 @@ This is a ray marcher made to run on shadertoy as an online demo.
 
 ## Mission Statements
 
-- Almost-realtime frame times (45-60fps, but aiming)
+- Almost-realtime frame times (45-60fps, but aiming for ~60)
 - Documentation throughout the code
 - Largely configurable settings and definitions in "Common" tab
 - Good UX for scene parsing and creation
@@ -64,15 +64,13 @@ This is a ray marcher made to run on shadertoy as an online demo.
 
 - Scenes will be lists of functions, defined by macros
 - Passes
-	- Pass One - Wide Cone Marching
-		- Wide Cone Marching
+	- Pass One - GBuffer pass
 		- Return Color
 			- R - Distance
 			- G - ==Empty==
 			- B - ==Empty==
 			- A - ==Empty==
-	- Pass Two - G-Buffer Ray Marching
-		- Narrow Ray Marching
+	- Pass Two - Render pass
 		- Either 4 or 6 tap normal esimation
 		- Return Color
 			- R - Hit Distance
@@ -94,8 +92,6 @@ This is a ray marcher made to run on shadertoy as an online demo.
 
 - Settings
 	- Ray Marching Settings
-		- CONE_MARCHING - bool - 0/1
-		- MAX_STEPS_CONE_MARCHING - int
 		- MAX_STEPS_RAY_MARCHING - int
 	- Render Settings
 		- SKYBOX_COLOR_MULT - float
@@ -225,10 +221,10 @@ This is a ray marcher made to run on shadertoy as an online demo.
 
 ### Methods
 
-- Pass 1 - Wide Cone Marching
+- Pass 1 - G-Buffer
 	- marchRay(const in Ray ray) -> ==HitInfo==
 	- estimateNormal(const in Ray ray, const in Hit initialHit) -> ==vec3==
-- Pass 2 - G-Buffer Ray Marching & BDRF Render
+- Pass 2 - BDRF Render
 	- marchRay(const in Ray ray) -> ==HitInfo==
 	- estimateNormal(const in Ray ray, const in HitInfo initialHit) -> ==vec3==
 	- processBounce(inout Ray ray, const in HitInfo hit, const in Material)

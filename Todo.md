@@ -32,11 +32,12 @@ This file contains information to store for this project, including:
 	- [x] Skybox
 	- [x] Render Pass
 - [ ] Phase 3
-	- [ ] Cone Marching
+	- [ ] Accelleration
 	- [ ] Scene definition though macros
 	- [ ] Basic operations
 - [ ] Phase 4
 	- [ ] Full operation list minus space-warping ones
+    - [ ] Full post library
 - [ ] Phase 5
 	- [ ] Full implementation of list including space - warping
 	- [ ] Analytical gradient curves
@@ -48,8 +49,6 @@ This file contains information to store for this project, including:
 
 ### Todo - Not Code
 
-- [ ] Figure out how materials will work to distinguish them
-- [ ] Figure out how computing the BDRF will work
 - [ ] Figure out how to stop recreating HitInfos in sdfs
 
 ### Todo - Future Todos
@@ -69,6 +68,9 @@ This file contains information to store for this project, including:
 
 ### Finished Todos
 
+- [x] Figure out how materials will work to distinguish them
+- [x] Figure out how computing the BDRF will work
+
 ## Ideas
 ---
 
@@ -76,6 +78,9 @@ This file contains information to store for this project, including:
 - Adding fBM support for texturing materials
 - Adding fBM support for bump mapping & normals
 - Skip sampling the scene when multiple samples when there is a no-hit for the first hit
+- Dither support
+- Resolution tricks (adaptive resolution / upscaling)
+- Cone trace secondary rays, and tighten cone when needed via roughness (ex. specular bulb)
 
 ## Checklists
 ---

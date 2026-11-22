@@ -1,6 +1,8 @@
 #include "common.glsl"
 
-// Run the narrow ray marching (sphere tracing) algorithm
+const float KEY_SPACE = 32.5 / 256.0;
+
+// Run the ray marching (sphere tracing) algorithm
 HitInfo marchRay(const in Ray ray) {
 
     // Clone the immutable ray to be used mutabily
@@ -108,7 +110,7 @@ vec3 colorScene(const in Ray ray, vec2 fragCoord) {
     vec3 colorMult = material.color;
 
     // Loop over until broken or max bounces - starts at 1 because of g-buffer
-    for (int bounces = 1; bounces < MAX_BOUNCES; bounces++) {
+    for (int bounce = 1; bounce < MAX_BOUNCES; bounce++) {
 
         // March the ray to get a hit
         hit = marchRay(cameraRay);
@@ -128,6 +130,19 @@ vec3 colorScene(const in Ray ray, vec2 fragCoord) {
         // Update color and throughput
         color += material.emmisive * colorMult;
         colorMult *= material.color;
+
+        // Russian roulette
+        if (bounce > MIN_BOUNCE_BEFORE_RUSSIAN_ROULETTE) {
+            // Find the largest color weight
+            float p = max(colorMult.r, max(colorMult.g, colorMult.b));
+
+            // If the random chance is bigger than the largest color weight
+            if (randomNormalizedFloat() > p)
+                break;
+
+            // Account for lost energy
+            colorMult /= p;
+        }
     }
 
     return color;
@@ -178,9 +193,12 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     // Pure output
     fragColor = vec4(color, 1.0);
 #else
+    // Reset
+    bool spacePressed = (texture(iChannel2, vec2(KEY_SPACE, 0.25)).x > 0.1);
+
     // Last frame color & blend for basic accumulation
     vec4 lastFrameColor = texture(iChannel1, fragCoord / iResolution.xy);
-    float blend = (iMouse.z > 0.0 || lastFrameColor.a == 0.0)
+    float blend = (iMouse.z > 0.0 || spacePressed || lastFrameColor.a == 0.0)
                       ? 1.0
                       : 1.0 / (1.0 + (1.0 / lastFrameColor.a));
     fragColor = vec4(mix(lastFrameColor.rgb, color, blend), blend);

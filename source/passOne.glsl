@@ -1,7 +1,6 @@
 #include "common.glsl"
 
-// Run the narrow ray marching (sphere tracing) algorithm
-// TODO: temp - eventually will be cone-marching
+// Run the ray marching (sphere tracing) algorithm
 HitInfo marchRay(const in Ray ray) {
 
     // Clone the immutable ray to be used mutabily
