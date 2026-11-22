@@ -421,47 +421,47 @@ SDFInfo smoothIntersectOperation(SDFInfo objectA, SDFInfo objectB,
 
 // ----------------- Macros -----------------
 
-// TODO: temp; Helper for creation matricie
-mat3 createRotationMatrix(vec3 rotationAngles) {
-    float x = rotationAngles.x;
-    float y = rotationAngles.y;
-    float z = rotationAngles.z;
+#define SCENE(tree)                                                            \
+    SDFInfo map(vec3 rayPosition) { return (tree); }
 
-    return mat3(cos(y) * cos(z), -cos(y) * sin(z), sin(y),
-                (cos(x) * sin(z) + sin(x) * sin(y) * cos(z)),
-                (cos(x) * cos(z) - sin(x) * sin(y) * sin(z)), -sin(x) * cos(y),
-                (sin(x) * sin(z) - cos(x) * sin(y) * cos(z)),
-                (sin(x) * cos(z) + cos(x) * sin(y) * sin(z)), cos(x) * cos(y));
-}
+#define SPHERE(center, radius, materialID)                                     \
+    sphereSDF(rayPosition, (center), (radius), (materialID))
+#define BOX(center, bounds, materialID)                                        \
+    boxSDF(rayPosition, (center), (bounds), (materialID))
+#define rBOX(center, bounds, radius, materialID)                               \
+    roundedBoxSDF(rayPosition, (center), (bounds), (radius), (materialID))
+#define fBOX(center, bounds, radius, materialID)                               \
+    framedBoxSDF(rayPosition, (center), (bounds), (radius), (materialID))
+#define PLANE(normal, height, materialID)                                      \
+    planeSDF(rayPosition, (normal), (height), (materialID))
+#define CYLINDER(endA, endB, radius, materialID)                               \
+    cylinderSDF(rayPosition, (endA), (endB), (radius), (materialID))
+#define TORUS(center, holeRadius, bodyRadius, materialID)                      \
+    torusSDF(rayPosition, (center), (holeRadius), (bodyRadius), (materialID))
+#define OCTAHEDRON(center, radius, materialID)                                 \
+    octahedronSDF(rayPosition, (center), (radius), (materialID))
 
-// TODO: Temp; will be turned into a pure macro (and won't be individually
-// called)
-SDFInfo map(vec3 rayPosition) {
-    return unionOperation(
-        unionOperation(
-            unionOperation(
-                subtractOperation(
-                    smoothSubtractOperation(
-                        smoothSubtractOperation(
-                            roundedBoxSDF(rayPosition, vec3(0.0, 0.0, 5.0),
-                                          vec3(1.0), 0.3, 0),
-                            sphereSDF(rayPosition, vec3(0.7, -0.2, 4.2), 0.45,
-                                      1),
-                            0.05),
-                        cylinderSDF(rayPosition, vec3(-0.15, -0.25, 4.03),
-                                    vec3(0.0, 0.0, 6.97), 0.35, 0),
+#define UNION(objectA, objectB) unionOperation((objectA), (objectB))
+#define SUBTRACT(objectA, objectB) subtractOperation((objectA), (objectB))
+#define INTERSECT(objectA, objectB) intersectOperation((objectA), (objectB))
+
+#define sUNION(objectA, objectB, smoothnessFactor)                             \
+    smoothUnionOperation((objectA), (objectB), (smoothnessFactor))
+#define sSUBTRACT(objectA, objectB, smoothnessFactor)                          \
+    smoothSubtractOperation((objectA), (objectB), (smoothnessFactor))
+#define sINTERSECT(objectA, objectB, smoothnessFactor)                         \
+    smoothIntersectOperation((objectA), (objectB), (smoothnessFactor))
+
+SCENE(UNION(
+    UNION(UNION(SUBTRACT(
+                    sSUBTRACT(
+                        sSUBTRACT(rBOX(vec3(0.0, 0.0, 5.0), vec3(1.0), 0.3, 0),
+                                  SPHERE(vec3(0.7, -0.2, 4.2), 0.45, 1), 0.05),
+                        CYLINDER(vec3(-0.15, -0.25, 4.03), vec3(0.0, 0.0, 6.97),
+                                 0.35, 0),
                         0.04),
-                    sphereSDF(rayPosition, vec3(0.2, 0.1, 5.0), 0.2, 6)),
-                planeSDF(rayPosition, vec3(0.0, 1.0, 0.0), 1.0, 2)),
-            torusSDF(createRotationMatrix(vec3(-0.6, -0.9, 0.2)) *
-                         (vec3(-0.6, 0.9, 4.1) - rayPosition),
-                     vec3(0.0), 0.7, 0.3, 3)),
-        smoothUnionOperation(
-            framedBoxSDF(createRotationMatrix(vec3(0.0, -0.5, 0.0)) *
-                             (vec3(-1.8, -0.4, 3.0) - rayPosition),
-                         vec3(0.0), vec3(0.6), 0.05, 5),
-            octahedronSDF(createRotationMatrix(vec3(0.0, -0.5, 0.0)) *
-                              (vec3(-1.8, -0.4, 3.0) - rayPosition),
-                          vec3(0.0), 0.8, 4),
-            0.1));
-}
+                    SPHERE(vec3(0.2, 0.1, 5.0), 0.2, 6)),
+                PLANE(vec3(0.0, 1.0, 0.0), 1.0, 2)),
+          TORUS(vec3(-0.6, 0.9, 4.1), 0.7, 0.3, 3)),
+    sUNION(fBOX(vec3(-1.8, -0.4, 3.0), vec3(0.6), 0.05, 5),
+           OCTAHEDRON(vec3(-1.8, -0.4, 3.0), 0.8, 4), 0.1)))
