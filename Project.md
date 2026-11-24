@@ -9,8 +9,13 @@ This is a ray marcher made to run on shadertoy as an online demo.
 - Largely configurable settings and definitions in "Common" tab
 - Good UX for scene parsing and creation
 - Cutting compile time via checking definitions
-- Optomized compiling from chosen settings
+- Optimized compiling from chosen settings
 - Full post engine
+- Super user-friendly scene descriptors
+	- Tree structure
+	- No definitions for number of lights, objects, etc.
+	- One source of truth
+	- No duplicate parameters (ex. rayPosition (p) for sdfs)
 
 ## Goals
 
@@ -59,6 +64,7 @@ This is a ray marcher made to run on shadertoy as an online demo.
 	- Vignette
 	- Fog
 	- SSAO
+- Acceleration structures to greatly speed up the rendering
 
 ## Technical
 
@@ -259,3 +265,4 @@ This is a ray marcher made to run on shadertoy as an online demo.
 
 - Tree definition: [https://share.google/aimode/vM5EvYNRlcU90GUNV]
 - Cone Marching Quick Idea & Normals: [https://share.google/aimode/ZJKYmMqPIHMsFPhcw](https://share.google/aimode/ZJKYmMqPIHMsFPhcw)
+- Scene macro understatement (yea, I didn't need this, it was pretty obvious, just missed it): [https://share.gemini.google/xv6wvrBcVAlF]
