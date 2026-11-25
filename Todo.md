@@ -86,7 +86,8 @@ This file contains information to store for this project, including:
 - For post, maybe do a screen space path trace just for the fog
     - Not sure if that would work, I'll think on it later
     - I may have to add it to processBounce()
-- See if I can pre-calculate the FOV during runtime
+- See if I can pre-calculate the FOV + cameraDist during runtime
+- Change all of the flags for sdfs and stuff into a boolean
 
 ## Checklists
 ---

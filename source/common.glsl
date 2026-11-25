@@ -5,13 +5,13 @@ precision highp float;
 // ----------------- Settings -----------------
 
 // Ray Marching
-#define MAX_STEPS_RAY_MARCHING 240
+#define MAX_STEPS_RAY_MARCHING 64
 
 // Render
-#define SKYBOX_COLOR_MULT vec3(0.5)
+#define SKYBOX_COLOR_MULT vec3(0.1)
 
 #define MAX_BOUNCES 10
-#define SAMPLES 1
+#define SAMPLES 5
 
 #define MIN_BOUNCE_BEFORE_RUSSIAN_ROULETTE 3
 
@@ -35,21 +35,8 @@ precision highp float;
 #define EXPOSURE 1
 #define TONE_MAPPING 1
 #define SRGB 1
-#define FOG 0
-#define VIGNETTE 0
 
-// Settings
 #define EXPOSURE_FACTOR 1.0
-
-#define FOG_COLOR vec3(0.6, 0.1, 0.2)
-#define FOG_DENSITY 0.6
-#define FOG_ALPHA 0.7
-
-#define VIGNETTE_COLOR vec3(0.0)
-#define VIGNETTE_RADIUS 1.8
-#define VIGNETTE_SOFTNESS 2.0
-
-// ----------------- Definitions -----------------
 
 // ----------------- Numbers -----------------
 
@@ -102,12 +89,18 @@ struct HitInfo {
 struct SDFInfo {
     float dist;
     int materialID;
+    vec3 aabbMin;
+    vec3 aabbMax;
+    bool written;
 };
 
 // ----------------- Global Values -----------------
 
 // Global random seed
 uint seed;
+
+// BVH builder counter variable
+int count = 0;
 
 // ----------------- Helper Functions -----------------
 
@@ -267,201 +260,140 @@ bool unpackGBuffer(const in Ray ray, out HitInfo hit, out Material material,
 
 // ----------------- Intersection Functions -----------------
 
-SDFInfo sphereSDF(vec3 rayPosition, vec3 center, float radius, int materialID) {
+SDFInfo sphereSDF(vec3 rayPosition, vec3 center, float radius, int materialID,
+                  bool buildBVH) {
+    SDFInfo sdfInfo;
+
+    if (buildBVH && (count <= 0 || count >= 100)) {
+        sdfInfo.written = false;
+        return sdfInfo;
+    }
+
+    if (buildBVH) {
+        sdfInfo.written = true;
+
+        // TODO: build aabb min & max
+        sdfInfo.aabbMin = center - vec3(radius);
+        sdfInfo.aabbMax = center + vec3(radius);
+
+        count -= 2;
+        return sdfInfo;
+    }
+
     float sdfDist = length(center - rayPosition) - radius;
 
-    return SDFInfo(sdfDist, materialID);
+    sdfInfo.materialID = materialID;
+    sdfInfo.dist = sdfDist;
+
+    return sdfInfo;
 }
 
-SDFInfo boxSDF(vec3 rayPosition, vec3 center, vec3 bounds, int materialID) {
+SDFInfo boxSDF(vec3 rayPosition, vec3 center, vec3 bounds, int materialID,
+               bool buildBVH) {
+    SDFInfo sdfInfo;
+
+    if (buildBVH && (count <= 0 || count >= 100)) {
+        sdfInfo.written = false;
+        return sdfInfo;
+    }
+
+    if (buildBVH) {
+        sdfInfo.written = true;
+
+        // TODO: build aabb min & max
+        sdfInfo.aabbMin = center - bounds;
+        sdfInfo.aabbMax = center + bounds;
+
+        count -= 2;
+        return sdfInfo;
+    }
+
     vec3 q = abs(center - rayPosition) - bounds;
     float sdfDist = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
 
-    return SDFInfo(sdfDist, materialID);
-}
+    sdfInfo.dist = sdfDist;
 
-SDFInfo roundedBoxSDF(vec3 rayPosition, vec3 center, vec3 bounds, float radius,
-                      int materialID) {
-    vec3 q = abs(center - rayPosition) - bounds + radius;
-    float sdfDist =
-        length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - radius;
-
-    return SDFInfo(sdfDist, materialID);
-}
-
-SDFInfo framedBoxSDF(vec3 rayPosition, vec3 center, vec3 bounds,
-                     float edgeWidth, int materialID) {
-
-    rayPosition = abs(center - rayPosition) - bounds;
-    vec3 q = abs(rayPosition + edgeWidth) - edgeWidth;
-
-    float sdfDist = min(min(length(max(vec3(rayPosition.x, q.y, q.z), 0.0)) +
-                                min(max(rayPosition.x, max(q.y, q.z)), 0.0),
-                            length(max(vec3(q.x, rayPosition.y, q.z), 0.0)) +
-                                min(max(q.x, max(rayPosition.y, q.z)), 0.0)),
-                        length(max(vec3(q.x, q.y, rayPosition.z), 0.0)) +
-                            min(max(q.x, max(q.y, rayPosition.z)), 0.0));
-
-    return SDFInfo(sdfDist, materialID);
-}
-
-SDFInfo torusSDF(vec3 rayPosition, vec3 center, float holeRadius,
-                 float bodyRadius, int materialID) {
-    rayPosition = center - rayPosition;
-
-    vec2 q = vec2(length(rayPosition.xz) - holeRadius, rayPosition.y);
-    float sdfDist = length(q) - bodyRadius;
-
-    return SDFInfo(sdfDist, materialID);
-}
-
-SDFInfo planeSDF(vec3 rayPosition, vec3 normal, float height, int materialID) {
-    float sdfDist = dot(rayPosition, normal) + height;
-
-    return SDFInfo(sdfDist, materialID);
-}
-
-SDFInfo cylinderSDF(vec3 rayPosition, vec3 endA, vec3 endBPosition,
-                    float radius, int materialID) {
-    vec3 ba = endBPosition - endA;
-    vec3 pa = rayPosition - endA;
-    float baba = dot(ba, ba);
-    float paba = dot(pa, ba);
-
-    float x = length(pa * baba - ba * paba) - radius * baba;
-    float y = abs(paba - baba * 0.5) - baba * 0.5;
-    float x2 = x * x;
-    float y2 = y * y * baba;
-    float d = (max(x, y) < 0.0)
-                  ? -min(x2, y2)
-                  : (((x > 0.0) ? x2 : 0.0) + ((y > 0.0) ? y2 : 0.0));
-
-    float sdfDist = sign(d) * sqrt(abs(d)) / baba;
-
-    return SDFInfo(sdfDist, materialID);
-}
-
-SDFInfo octahedronSDF(vec3 rayPosition, vec3 center, float radius,
-                      int materialID) {
-    rayPosition = abs(center - rayPosition);
-    float m = rayPosition.x + rayPosition.y + rayPosition.z - radius;
-    vec3 q;
-    if (3.0 * rayPosition.x < m)
-        q = rayPosition.xyz;
-    else if (3.0 * rayPosition.y < m)
-        q = rayPosition.yzx;
-    else if (3.0 * rayPosition.z < m)
-        q = rayPosition.zxy;
-    else
-        return SDFInfo(m * 0.57735027, materialID);
-
-    float k = clamp(0.5 * (q.z - q.y + radius), 0.0, radius);
-    float sdfDist = length(vec3(q.x, q.y - radius + k, q.z - k));
-
-    return SDFInfo(sdfDist, materialID);
+    return sdfInfo;
 }
 
 // ----------------- Entity Operations & Modifiers -----------------
 
 // Pure Boolean operations
-SDFInfo unionOperation(SDFInfo objectA, SDFInfo objectB) {
+SDFInfo unionOperation(SDFInfo objectA, SDFInfo objectB, bool buildBVH) {
+    if (buildBVH && (count <= 0 || count >= 100)) {
+        if (objectB.written) {
+            return objectB;
+        }
+
+        return objectA;
+    }
+
+    SDFInfo sdfInfo;
+
+    if (buildBVH) {
+
+        sdfInfo.aabbMin = vec3(min(objectA.aabbMin.x, objectB.aabbMin.x),
+                               min(objectA.aabbMin.y, objectB.aabbMin.y),
+                               min(objectA.aabbMin.z, objectB.aabbMin.z));
+
+        sdfInfo.aabbMax = vec3(max(objectA.aabbMax.x, objectB.aabbMax.x),
+                               max(objectA.aabbMax.y, objectB.aabbMax.y),
+                               max(objectA.aabbMax.z, objectB.aabbMax.z));
+
+        count -= 2;
+        return sdfInfo;
+    }
+
     bool pickA = objectA.dist < objectB.dist;
 
-    return SDFInfo(pickA ? objectA.dist : objectB.dist,
-                   pickA ? objectA.materialID : objectB.materialID);
-}
+    sdfInfo.dist = pickA ? objectA.dist : objectB.dist;
+    sdfInfo.materialID = pickA ? objectA.materialID : objectB.materialID;
 
-SDFInfo subtractOperation(SDFInfo objectA, SDFInfo objectB) {
-    bool pickA = objectA.dist > -objectB.dist;
-
-    return SDFInfo(pickA ? objectA.dist : -objectB.dist,
-                   pickA ? objectA.materialID : objectB.materialID);
-}
-
-SDFInfo intersectOperation(SDFInfo objectA, SDFInfo objectB) {
-    bool pickA = objectA.dist > objectB.dist;
-
-    return SDFInfo(pickA ? objectA.dist : objectB.dist,
-                   pickA ? objectA.materialID : objectB.materialID);
-}
-
-// Smooth Boolean Operations
-SDFInfo smoothUnionOperation(SDFInfo objectA, SDFInfo objectB,
-                             float smoothnessFactor) {
-    bool pickA = objectA.dist < objectB.dist;
-
-    smoothnessFactor *= 4.0;
-    float h = max(smoothnessFactor - abs(objectA.dist - objectB.dist), 0.0);
-    return SDFInfo(min(objectA.dist, objectB.dist) -
-                       h * h * 0.25 / smoothnessFactor,
-                   pickA ? objectA.materialID : objectB.materialID);
-}
-
-SDFInfo smoothSubtractOperation(SDFInfo objectA, SDFInfo objectB,
-                                float smoothnessFactor) {
-    bool pickA = objectA.dist > -objectB.dist;
-
-    smoothnessFactor *= 4.0;
-    float h = max(smoothnessFactor - abs(objectA.dist + objectB.dist), 0.0);
-    return SDFInfo(max(objectA.dist, -objectB.dist) +
-                       h * h * 0.25 / smoothnessFactor,
-                   pickA ? objectA.materialID : objectB.materialID);
-}
-
-SDFInfo smoothIntersectOperation(SDFInfo objectA, SDFInfo objectB,
-                                 float smoothnessFactor) {
-    bool pickA = objectA.dist > objectB.dist;
-
-    smoothnessFactor *= 4.0;
-    float h = max(smoothnessFactor - abs(objectA.dist - objectB.dist), 0.0);
-    return SDFInfo(max(objectA.dist, objectB.dist) +
-                       h * h * 0.25 / smoothnessFactor,
-                   pickA ? objectA.materialID : objectB.materialID);
+    return sdfInfo;
 }
 
 // ----------------- Macros -----------------
 
 #define SCENE(tree)                                                            \
-    SDFInfo map(vec3 rayPosition) { return (tree); }
+    SDFInfo map(vec3 rayPosition) {                                            \
+        bool buildBVH = false;                                                 \
+                                                                               \
+        count = 0;                                                             \
+        SDFInfo sdfInfo = (tree);                                              \
+                                                                               \
+        return sdfInfo;                                                        \
+    }                                                                          \
+    SDFInfo buildBVH(vec2 fragCoord) {                                         \
+        bool buildBVH = true;                                                  \
+                                                                               \
+        int linearFragCoord =                                                  \
+            int(fragCoord.x) + int(iResolution.x) * int(fragCoord.y);          \
+        bool isLeftNode = bool((linearFragCoord) % 2);                         \
+        count = linearFragCoord + 1;                                           \
+                                                                               \
+        vec3 rayPosition = vec3(0.0);                                          \
+                                                                               \
+        SDFInfo sdfInfo = (tree);                                              \
+                                                                               \
+        if (count >= 1) {                                                      \
+            sdfInfo.aabbMin = vec3(1.0, 0.0, 1.0);                             \
+            sdfInfo.aabbMax = vec3(1.0, 0.0, 1.0);                             \
+        }                                                                      \
+                                                                               \
+        return sdfInfo;                                                        \
+    }
 
 #define SPHERE(center, radius, materialID)                                     \
-    sphereSDF(rayPosition, (center), (radius), (materialID))
+    sphereSDF(rayPosition, (center), (radius), (materialID), (buildBVH))
 #define BOX(center, bounds, materialID)                                        \
-    boxSDF(rayPosition, (center), (bounds), (materialID))
-#define rBOX(center, bounds, radius, materialID)                               \
-    roundedBoxSDF(rayPosition, (center), (bounds), (radius), (materialID))
-#define fBOX(center, bounds, radius, materialID)                               \
-    framedBoxSDF(rayPosition, (center), (bounds), (radius), (materialID))
-#define PLANE(normal, height, materialID)                                      \
-    planeSDF(rayPosition, (normal), (height), (materialID))
-#define CYLINDER(endA, endB, radius, materialID)                               \
-    cylinderSDF(rayPosition, (endA), (endB), (radius), (materialID))
-#define TORUS(center, holeRadius, bodyRadius, materialID)                      \
-    torusSDF(rayPosition, (center), (holeRadius), (bodyRadius), (materialID))
-#define OCTAHEDRON(center, radius, materialID)                                 \
-    octahedronSDF(rayPosition, (center), (radius), (materialID))
+    boxSDF(rayPosition, (center), (bounds), (materialID), (buildBVH))
 
-#define UNION(objectA, objectB) unionOperation((objectA), (objectB))
-#define SUBTRACT(objectA, objectB) subtractOperation((objectA), (objectB))
-#define INTERSECT(objectA, objectB) intersectOperation((objectA), (objectB))
+#define UNION(objectA, objectB) unionOperation((objectA), (objectB), (buildBVH))
 
-#define sUNION(objectA, objectB, smoothnessFactor)                             \
-    smoothUnionOperation((objectA), (objectB), (smoothnessFactor))
-#define sSUBTRACT(objectA, objectB, smoothnessFactor)                          \
-    smoothSubtractOperation((objectA), (objectB), (smoothnessFactor))
-#define sINTERSECT(objectA, objectB, smoothnessFactor)                         \
-    smoothIntersectOperation((objectA), (objectB), (smoothnessFactor))
+SCENE(UNION(SPHERE(vec3(0.8, 0.3, 0.8), 0.3, 0),
+            BOX(vec3(0.2, 0.6, 0.5), vec3(0.2, 0.2, 0.2), 0)))
 
-SCENE(UNION(
-    UNION(UNION(SUBTRACT(
-                    sSUBTRACT(
-                        sSUBTRACT(rBOX(vec3(0.0, 0.0, 5.0), vec3(1.0), 0.3, 0),
-                                  SPHERE(vec3(0.7, -0.2, 4.2), 0.45, 1), 0.05),
-                        CYLINDER(vec3(-0.15, -0.25, 4.03), vec3(0.0, 0.0, 6.97),
-                                 0.35, 0),
-                        0.04),
-                    SPHERE(vec3(0.2, 0.1, 5.0), 0.2, 6)),
-                PLANE(vec3(0.0, 1.0, 0.0), 1.0, 2)),
-          TORUS(vec3(-0.6, 0.9, 4.1), 0.7, 0.3, 3)),
-    sUNION(fBOX(vec3(-1.8, -0.4, 3.0), vec3(0.6), 0.05, 5),
-           OCTAHEDRON(vec3(-1.8, -0.4, 3.0), 0.8, 4), 0.1)))
+// SCENE(UNION(UNION(SPHERE(vec3(-1.5, 0.0, 4.0), 1.0, 0),
+//                   UNION(BOX(vec3(0.0, 0.0, 5.0), vec3(1.0), 0),
+//                         SPHERE(vec3(0.6, 0.6, 4.4), 1.0, 0))),
+//             SPHERE(vec3(1.4, 1.6, 3.5), 0.4, 1)))
