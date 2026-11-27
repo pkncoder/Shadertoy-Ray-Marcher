@@ -37,11 +37,49 @@ vec3 ACESFilm(vec3 inputColor) {
                  0.0f, 1.0f);
 }
 
+// SCENE(UNION(SPHERE(vec3(0.8, 0.3, 0.8), 0.3, 0),
+//            BOX(vec3(0.2, 0.6, 0.5), vec3(0.2, 0.2, 0.2), 0)))
+
+vec3 fixVecF(vec3 v) {
+    return vec3(int(v.x * 10.0), int(v.y * 10.0), int(v.z * 10.0));
+}
+
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     fragColor.a = 1.0; // Constant alpha color
 
-    // Get the final pass's color
     fragColor.rgb = texture(iChannel0, fragCoord / iResolution.xy).rgb;
+
+    // Get the final pass's color
+    if (fragCoord.x / iResolution.x > 0.5)
+        fragColor.rgb = texture(iChannel2, fragCoord / iResolution.xy).rgb;
+
+    int linearFragCoord = int(fragCoord.x);
+
+    if (false) {
+        vec3 color = texture(iChannel1, fragCoord / iResolution.xy).xyz;
+
+        if (linearFragCoord == 1) {
+            fragColor = fixVecF(color) == vec3(0, 0, 3) ? vec4(1.0) : vec4(0.0);
+        } else if (linearFragCoord == 2) {
+            fragColor =
+                fixVecF(color) == vec3(11, 8, 11) ? vec4(1.0) : vec4(0.0);
+        } else if (linearFragCoord == 3) {
+            fragColor = fixVecF(color) == vec3(0, 4, 3) ? vec4(1.0) : vec4(0.0);
+        } else if (linearFragCoord == 4) {
+            fragColor = fixVecF(color) == vec3(4, 8, 7) ? vec4(1.0) : vec4(0.0);
+        } else if (linearFragCoord == 5) {
+            fragColor = fixVecF(color) == vec3(5, 0, 5) ? vec4(1.0) : vec4(0.0);
+        } else if (linearFragCoord == 6) {
+            fragColor =
+                fixVecF(color) == vec3(11, 6, 11) ? vec4(1.0) : vec4(0.0);
+        } else {
+            fragColor = vec4(0.1);
+        }
+
+        fragColor = vec4(color, 1.0);
+
+        return;
+    }
 
 #if EXPOSURE == 1
     // Multiply by the exposure

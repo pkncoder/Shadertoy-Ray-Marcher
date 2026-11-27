@@ -15,12 +15,12 @@ precision highp float;
 
 #define MIN_BOUNCE_BEFORE_RUSSIAN_ROULETTE 3
 
-#define ANTI_ALIASING 1
+#define ANTI_ALIASING 0
 
-#define ACCUM 1
+#define ACCUM 0
 
 // Camera Settings
-#define CAMERA_CENTER vec3(0.0, 0.0, 5.0)
+#define CAMERA_CENTER vec3(0.0, 0.0, 0.0)
 #define CAMERA_Z_OFFSET 5.0
 
 #define FOV 65.0
@@ -92,6 +92,7 @@ struct SDFInfo {
     vec3 aabbMin;
     vec3 aabbMax;
     bool written;
+    int reachedCount;
 };
 
 // ----------------- Global Values -----------------
@@ -99,7 +100,8 @@ struct SDFInfo {
 // Global random seed
 uint seed;
 
-// BVH builder counter variable
+// BVH builder counter variables
+int targetCount = -1;
 int count = 0;
 
 // ----------------- Helper Functions -----------------
@@ -264,7 +266,7 @@ SDFInfo sphereSDF(vec3 rayPosition, vec3 center, float radius, int materialID,
                   bool buildBVH) {
     SDFInfo sdfInfo;
 
-    if (buildBVH && (count <= 0 || count >= 100)) {
+    if (buildBVH && count > targetCount && targetCount != -1) {
         sdfInfo.written = false;
         return sdfInfo;
     }
@@ -273,10 +275,14 @@ SDFInfo sphereSDF(vec3 rayPosition, vec3 center, float radius, int materialID,
         sdfInfo.written = true;
 
         // TODO: build aabb min & max
-        sdfInfo.aabbMin = center - vec3(radius);
-        sdfInfo.aabbMax = center + vec3(radius);
+        sdfInfo.aabbMin =
+            vec3(center.x - radius, center.y - radius, center.z - radius);
+        sdfInfo.aabbMax =
+            vec3(center.x + radius, center.y + radius, center.z + radius);
 
-        count -= 2;
+        count += 2;
+
+        sdfInfo.reachedCount = count;
         return sdfInfo;
     }
 
@@ -292,7 +298,7 @@ SDFInfo boxSDF(vec3 rayPosition, vec3 center, vec3 bounds, int materialID,
                bool buildBVH) {
     SDFInfo sdfInfo;
 
-    if (buildBVH && (count <= 0 || count >= 100)) {
+    if (buildBVH && count > targetCount && targetCount != -1) {
         sdfInfo.written = false;
         return sdfInfo;
     }
@@ -304,13 +310,16 @@ SDFInfo boxSDF(vec3 rayPosition, vec3 center, vec3 bounds, int materialID,
         sdfInfo.aabbMin = center - bounds;
         sdfInfo.aabbMax = center + bounds;
 
-        count -= 2;
+        count += 2;
+
+        sdfInfo.reachedCount = count;
         return sdfInfo;
     }
 
     vec3 q = abs(center - rayPosition) - bounds;
     float sdfDist = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
 
+    sdfInfo.materialID = materialID;
     sdfInfo.dist = sdfDist;
 
     return sdfInfo;
@@ -320,7 +329,7 @@ SDFInfo boxSDF(vec3 rayPosition, vec3 center, vec3 bounds, int materialID,
 
 // Pure Boolean operations
 SDFInfo unionOperation(SDFInfo objectA, SDFInfo objectB, bool buildBVH) {
-    if (buildBVH && (count <= 0 || count >= 100)) {
+    if (buildBVH && count > targetCount && targetCount != -1) {
         if (objectB.written) {
             return objectB;
         }
@@ -340,7 +349,9 @@ SDFInfo unionOperation(SDFInfo objectA, SDFInfo objectB, bool buildBVH) {
                                max(objectA.aabbMax.y, objectB.aabbMax.y),
                                max(objectA.aabbMax.z, objectB.aabbMax.z));
 
-        count -= 2;
+        count += 2;
+
+        sdfInfo.reachedCount = count;
         return sdfInfo;
     }
 
@@ -350,6 +361,30 @@ SDFInfo unionOperation(SDFInfo objectA, SDFInfo objectB, bool buildBVH) {
     sdfInfo.materialID = pickA ? objectA.materialID : objectB.materialID;
 
     return sdfInfo;
+}
+
+SDFInfo aabbSDF(vec3 rayPosition, vec3 aabbMin, vec3 aabbMax, int materialID) {
+    vec3 center = (aabbMin + aabbMax) * 0.5;
+    vec3 bounds = (aabbMax - aabbMin) * 0.5;
+    return boxSDF(rayPosition, center, bounds, materialID, false);
+}
+
+SDFInfo aabbMap(vec3 rayPosition, sampler2D aabbChannel) {
+    vec3 aabbMinOne = texelFetch(aabbChannel, ivec2(3, 0), 0).rgb;
+    vec3 aabbMaxOne = texelFetch(aabbChannel, ivec2(4, 0), 0).rgb;
+    SDFInfo sdfInfoOne = aabbSDF(rayPosition, aabbMinOne, aabbMaxOne, 0);
+
+    vec3 aabbMinTwo = texelFetch(aabbChannel, ivec2(5, 0), 0).rgb;
+    vec3 aabbMaxTwo = texelFetch(aabbChannel, ivec2(6, 0), 0).rgb;
+    SDFInfo sdfInfoTwo = aabbSDF(rayPosition, aabbMinTwo, aabbMaxTwo, 0);
+
+    vec3 aabbMinThree = texelFetch(aabbChannel, ivec2(1, 0), 0).rgb;
+    vec3 aabbMaxThree = texelFetch(aabbChannel, ivec2(2, 0), 0).rgb;
+    SDFInfo sdfInfoThree = aabbSDF(rayPosition, aabbMinThree, aabbMaxThree, 0);
+
+    SDFInfo sdfInfo = unionOperation(sdfInfoOne, sdfInfoTwo, false);
+
+    return sdfInfoThree;
 }
 
 // ----------------- Macros -----------------
@@ -363,22 +398,16 @@ SDFInfo unionOperation(SDFInfo objectA, SDFInfo objectB, bool buildBVH) {
                                                                                \
         return sdfInfo;                                                        \
     }                                                                          \
-    SDFInfo buildBVH(vec2 fragCoord) {                                         \
+    SDFInfo buildBVH(vec2 fragCoord, int maxSceneCount) {                      \
         bool buildBVH = true;                                                  \
                                                                                \
-        int linearFragCoord =                                                  \
-            int(fragCoord.x) + int(iResolution.x) * int(fragCoord.y);          \
-        bool isLeftNode = bool((linearFragCoord) % 2);                         \
-        count = linearFragCoord + 1;                                           \
+        int linearFragCoord = int(fragCoord.x);                                \
+        targetCount = maxSceneCount;                                           \
+        count = linearFragCoord;                                               \
                                                                                \
         vec3 rayPosition = vec3(0.0);                                          \
                                                                                \
         SDFInfo sdfInfo = (tree);                                              \
-                                                                               \
-        if (count >= 1) {                                                      \
-            sdfInfo.aabbMin = vec3(1.0, 0.0, 1.0);                             \
-            sdfInfo.aabbMax = vec3(1.0, 0.0, 1.0);                             \
-        }                                                                      \
                                                                                \
         return sdfInfo;                                                        \
     }
@@ -390,8 +419,8 @@ SDFInfo unionOperation(SDFInfo objectA, SDFInfo objectB, bool buildBVH) {
 
 #define UNION(objectA, objectB) unionOperation((objectA), (objectB), (buildBVH))
 
-SCENE(UNION(SPHERE(vec3(0.8, 0.3, 0.8), 0.3, 0),
-            BOX(vec3(0.2, 0.6, 0.5), vec3(0.2, 0.2, 0.2), 0)))
+SCENE(UNION(SPHERE(vec3(0.8, 0.3, 0.8), 0.4, 0),
+            BOX(vec3(0.2, 0.6, 0.5), vec3(0.6, 0.1, 0.9), 0)))
 
 // SCENE(UNION(UNION(SPHERE(vec3(-1.5, 0.0, 4.0), 1.0, 0),
 //                   UNION(BOX(vec3(0.0, 0.0, 5.0), vec3(1.0), 0),
